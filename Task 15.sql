@@ -125,3 +125,6 @@ VALUES
 (1, '2021.12.28', 1, 1, 7, NULL, NULL),
 (2, '2022.12.28', 2, 2, 7, NULL, NULL),
 (3, '2023.01.13', 3, 3, 7, NULL, NULL)
+
+DELETE FROM Occupancies
+SELECT * FROM Occupancies
