@@ -96,6 +96,130 @@ JobTitle AS Word,
 dbo.ufn_IsWordComprised(MiddleName, JobTitle) AS Result
 FROM Employees
 
-DROP FUNCTION ufn_IsWordComprised
+-- 8. Delete Employees and Departments
+CREATE PROCEDURE usp_DeleteEmployeesFromDepartment @departmentId INT
+AS
+BEGIN
+	DECLARE @employeesToDelete TABLE(Id INT)
 
-select * from Employees
+	INSERT INTO @employeesToDelete (Id)
+		SELECT EmployeeID FROM Employees
+		WHERE DepartmentID = @departmentId
+
+	DELETE FROM EmployeesProjects
+	WHERE EmployeeID IN (SELECT Id FROM @employeesToDelete)
+
+	ALTER TABLE Employees
+	ALTER COLUMN DepartmentID INT
+
+	ALTER TABLE Departments
+	ALTER COLUMN ManagerID INT
+
+	UPDATE Employees
+	SET DepartmentID = NULL
+	WHERE DepartmentID = @departmentId
+
+	UPDATE Employees
+	SET ManagerID = NULL
+	WHERE ManagerID IN (SELECT Id FROM @employeesToDelete)
+
+	UPDATE Departments
+	SET ManagerID = NULL
+	WHERE DepartmentID = @departmentId
+
+	DELETE FROM Departments
+	WHERE DepartmentID = @departmentId
+
+	DELETE FROM Employees
+	WHERE DepartmentID = @departmentId
+
+	SELECT 
+	COUNT(*)
+	FROM Employees
+	WHERE DepartmentID = @departmentId
+END
+
+EXEC dbo.usp_DeleteEmployeesFromDepartment 3
+
+-- 9. Find Full Name
+USE Bank
+
+CREATE PROCEDURE usp_GetHoldersFullName
+AS
+BEGIN 
+	SELECT
+	CONCAT(a.FirstName, ' ', a.LastName) AS 'Full Name'
+	FROM AccountHolders a
+END
+
+EXEC dbo.usp_GetHoldersFullName
+
+-- 10. People with Balance Higher Than
+CREATE PROCEDURE usp_GetHoldersWithBalanceHigherThan @moneyBorder MONEY
+AS
+BEGIN 
+	SELECT
+	ah.FirstName AS 'First Name',
+	ah.LastName AS 'Last Name'
+	FROM Accounts a
+	JOIN AccountHolders ah ON a.AccountHolderId = ah.Id
+	GROUP BY a.AccountHolderId, ah.FirstName, ah.LastName
+	HAVING SUM(a.Balance) > @moneyBorder
+	ORDER BY ah.FirstName, ah.LastName
+END
+
+EXEC dbo.usp_GetHoldersWithBalanceHigherThan 500000
+
+-- 11. Future Value Function
+CREATE FUNCTION ufn_CalculateFutureValue (@initialSum DECIMAL(18, 4), @yearlyInterestRate FLOAT, @NumberOfYears INT)
+RETURNS DECIMAL(18, 4)
+AS
+BEGIN
+	DECLARE @futureValue DECIMAL(18, 4)
+	SET @futureValue = @initialSum * POWER((1 + @yearlyInterestRate), @NumberOfYears)
+	RETURN ROUND(@futureValue, 4)
+END
+
+SELECT dbo.ufn_CalculateFutureValue(1000, 0.1, 5)
+
+-- 12. Calculating Interest
+CREATE OR ALTER PROCEDURE usp_CalculateFutureValueForAccount (@accountId INT, @interestRate FLOAT)
+AS
+SELECT
+	a.Id AS 'Account Id',
+	ah.FirstName AS 'First Name',
+	ah.LastName AS 'Last Name',
+	SUM(a.Balance) AS 'Current Balance',
+	dbo.ufn_CalculateFutureValue(SUM(a.Balance), @interestRate, 5) AS 'Balance in 5 years'
+FROM Accounts a
+JOIN AccountHolders ah ON a.AccountHolderId = ah.Id
+WHERE a.Id = @accountId
+GROUP BY a.Id, a.AccountHolderId, ah.FirstName, ah.LastName
+
+
+EXEC usp_CalculateFutureValueForAccount 1, 0.1
+
+
+-- 13. *Cash in User Games Odd Rows
+USE Diablo
+
+GO
+
+CREATE FUNCTION ufn_CashInUsersGames (@gameName NVARCHAR(50))
+RETURNS TABLE
+AS
+RETURN	
+	SELECT
+	SUM(Cash) AS 'SumCash'
+	FROM (
+		SELECT
+		g.[Name],
+		ug.Cash,
+		ROW_NUMBER() OVER(PARTITION BY g.[Name] ORDER BY ug.Cash DESC) AS 'RowNumber'
+		FROM Games g
+		JOIN UsersGames ug ON g.Id = ug.GameId) AS sub_1
+	WHERE [Name] = @gameName AND RowNumber % 2 <> 0
+
+GO
+
+SELECT * FROM  dbo.ufn_CashInUsersGames('Love in a mist')
